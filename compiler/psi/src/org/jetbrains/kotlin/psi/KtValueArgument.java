@@ -23,10 +23,16 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.kotlin.KtNodeTypes;
 import org.jetbrains.kotlin.lexer.KtTokens;
+import org.jetbrains.kotlin.psi.stubs.KotlinPlaceHolderStub;
+import org.jetbrains.kotlin.psi.stubs.elements.KtStubElementTypes;
 
-public class KtValueArgument extends KtElementImpl implements ValueArgument {
+public class KtValueArgument extends KtElementImplStub<KotlinPlaceHolderStub<KtValueArgument>> implements ValueArgument {
     public KtValueArgument(@NotNull ASTNode node) {
         super(node);
+    }
+
+    public KtValueArgument(@NotNull KotlinPlaceHolderStub<KtValueArgument> stub) {
+        super(stub, KtStubElementTypes.VALUE_ARGUMENT);
     }
 
     @Override
