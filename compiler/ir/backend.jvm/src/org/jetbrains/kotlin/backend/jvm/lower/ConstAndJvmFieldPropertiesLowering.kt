@@ -9,7 +9,6 @@ import org.jetbrains.kotlin.backend.common.CommonBackendContext
 import org.jetbrains.kotlin.backend.common.FileLoweringPass
 import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.lower.irBlock
-import org.jetbrains.kotlin.codegen.JvmCodegenUtil
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.*
 import org.jetbrains.kotlin.ir.expressions.*
@@ -19,7 +18,6 @@ import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.ir.visitors.IrElementTransformerVoid
 import org.jetbrains.kotlin.ir.visitors.transformChildrenVoid
 import org.jetbrains.kotlin.load.java.JvmAbi.JVM_FIELD_ANNOTATION_FQ_NAME
-import org.jetbrains.kotlin.synthetic.SyntheticJavaPropertyDescriptor
 
 class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : IrElementTransformerVoid(), FileLoweringPass {
     override fun lower(irFile: IrFile) {
@@ -27,7 +25,7 @@ class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : Ir
     }
 
     override fun visitProperty(declaration: IrProperty): IrStatement {
-        if (JvmCodegenUtil.isConstOrHasJvmFieldAnnotation(declaration.descriptor)) {
+        if (declaration.isConst || declaration.backingField?.hasAnnotation(JVM_FIELD_ANNOTATION_FQ_NAME) == true) {
             /*Safe or need copy?*/
             declaration.getter = null
             declaration.setter = null
@@ -50,9 +48,6 @@ class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : Ir
                 assert(expression is IrSetterCallImpl)
                 substituteSetter(irProperty, expression)
             }
-        } else if (irProperty.descriptor is SyntheticJavaPropertyDescriptor) {
-            expression.dispatchReceiver = expression.extensionReceiver
-            expression.extensionReceiver = null
         }
         return super.visitCall(expression)
     }
@@ -70,7 +65,7 @@ class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : Ir
             expression.origin,
             expression.superQualifierSymbol
         )
-        return buildSubstitution(backingField.isStaticField(), setExpr, receiver)
+        return buildSubstitution(backingField.isStatic, setExpr, receiver)
     }
 
     private fun substituteGetter(irProperty: IrProperty, expression: IrCall): IrExpression {
@@ -85,7 +80,7 @@ class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : Ir
             expression.origin,
             expression.superQualifierSymbol
         )
-        return buildSubstitution(backingField.isStaticField(), getExpr, receiver)
+        return buildSubstitution(backingField.isStatic, getExpr, receiver)
     }
 
     private fun buildSubstitution(needBlock: Boolean, setOrGetExpr: IrFieldAccessExpression, receiver: IrExpression?): IrExpression {
@@ -111,6 +106,3 @@ class ConstAndJvmFieldPropertiesLowering(val context: CommonBackendContext) : Ir
         }
     }
 }
-
-// Should probably be an utility function with a more direct implementation.
-private fun IrField.isStaticField() = (descriptor.dispatchReceiverParameter == null)
