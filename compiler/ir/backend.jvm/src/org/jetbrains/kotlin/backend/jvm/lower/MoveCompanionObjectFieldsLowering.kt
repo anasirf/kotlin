@@ -122,8 +122,8 @@ class MoveCompanionObjectFieldsLowering(val context: CommonBackendContext) : Cla
                 val variableMap = mutableMapOf<IrVariable, IrVariable>()
 
                 override fun visitVariable(declaration: IrVariable): IrStatement {
-                    val newDescriptor = WrappedVariableDescriptor(declaration.descriptor.annotations, declaration.descriptor.source)
                     if (declaration.parent == oldParent) {
+                        val newDescriptor = WrappedVariableDescriptor(declaration.descriptor.annotations, declaration.descriptor.source)
                         val newVariable = IrVariableImpl(
                             declaration.startOffset, declaration.endOffset,
                             declaration.origin, IrVariableSymbolImpl(newDescriptor),
@@ -132,6 +132,8 @@ class MoveCompanionObjectFieldsLowering(val context: CommonBackendContext) : Cla
                             newDescriptor.bind(this)
                             parent = newParent
                             initializer = declaration.initializer
+                            annotations.addAll(declaration.annotations)
+
                         }
                         variableMap[declaration] = newVariable
                         return super.visitVariable(newVariable)
@@ -180,7 +182,7 @@ class MoveCompanionObjectFieldsLowering(val context: CommonBackendContext) : Cla
         ).apply {
             descriptor.bind(this)
             parent = fieldParent
-            oldField.annotations.mapTo(annotations) { it }
+            annotations.addAll(oldField.annotations)
         }
         val oldInitializer = oldField.initializer
         if (oldInitializer != null) {
