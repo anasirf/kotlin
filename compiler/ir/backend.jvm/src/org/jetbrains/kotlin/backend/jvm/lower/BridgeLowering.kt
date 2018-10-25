@@ -14,6 +14,7 @@ import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.common.lower.irBlockBody
 import org.jetbrains.kotlin.backend.common.lower.irNot
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
+import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
 import org.jetbrains.kotlin.backend.jvm.descriptors.DefaultImplsClassDescriptor
 import org.jetbrains.kotlin.backend.jvm.descriptors.JvmFunctionDescriptorImpl
 import org.jetbrains.kotlin.codegen.AsmUtil.isAbstractMethod
@@ -54,6 +55,7 @@ import org.jetbrains.kotlin.resolve.DescriptorUtils.getSuperClassDescriptor
 import org.jetbrains.kotlin.resolve.DescriptorUtils.isInterface
 import org.jetbrains.kotlin.resolve.jvm.AsmTypes.OBJECT_TYPE
 import org.jetbrains.kotlin.resolve.jvm.annotations.hasJvmDefaultAnnotation
+import org.jetbrains.kotlin.resolve.jvm.diagnostics.JvmDeclarationOrigin
 import org.jetbrains.kotlin.types.TypeUtils
 import org.jetbrains.org.objectweb.asm.Opcodes.*
 import org.jetbrains.org.objectweb.asm.Type
@@ -70,7 +72,7 @@ class BridgeLowering(val context: JvmBackendContext) : ClassLoweringPass {
 
     override fun lower(irClass: IrClass) {
         val classDescriptor = irClass.descriptor
-        if (classDescriptor is DefaultImplsClassDescriptor) {
+        if (irClass.origin == JvmLoweredDeclarationOrigin.DEFAULT_IMPLS) {
             return /*TODO?*/
         }
 
@@ -87,7 +89,7 @@ class BridgeLowering(val context: JvmBackendContext) : ClassLoweringPass {
 
 
         //additional bridges for inherited interface methods
-        if (!DescriptorUtils.isInterface(classDescriptor) && classDescriptor !is DefaultImplsClassDescriptor) {
+        if (!DescriptorUtils.isInterface(classDescriptor) && irClass.origin != JvmLoweredDeclarationOrigin.DEFAULT_IMPLS) {
             for (memberDescriptor in DescriptorUtils.getAllDescriptors(classDescriptor.defaultType.memberScope)) {
                 if (memberDescriptor is CallableMemberDescriptor) {
                     if (!memberDescriptor.kind.isReal && findInterfaceImplementation(memberDescriptor) == null) {

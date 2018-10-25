@@ -19,8 +19,6 @@ package org.jetbrains.kotlin.backend.jvm.lower
 import org.jetbrains.kotlin.backend.common.ClassLoweringPass
 import org.jetbrains.kotlin.backend.common.lower.DECLARATION_ORIGIN_FUNCTION_FOR_DEFAULT_PARAMETER
 import org.jetbrains.kotlin.codegen.state.GenerationState
-import org.jetbrains.kotlin.descriptors.ClassDescriptor
-import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.ir.IrStatement
 import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrFunction
@@ -34,14 +32,7 @@ class StaticDefaultFunctionLowering(val state: GenerationState) : IrElementTrans
 
     override fun visitFunction(declaration: IrFunction): IrStatement {
         return if (declaration.origin == DECLARATION_ORIGIN_FUNCTION_FOR_DEFAULT_PARAMETER && declaration.dispatchReceiverParameter != null) {
-            val newFunction = createStaticFunctionWithReceivers(
-                declaration.descriptor.containingDeclaration as ClassDescriptor,
-                declaration.descriptor.name,
-                declaration.descriptor,
-                declaration.dispatchReceiverParameter!!.descriptor.type
-            )
-            // NOTE: Fix it
-            newFunction.createFunctionAndMapVariables(declaration, declaration.parent, Visibilities.PUBLIC)
+            createStaticFunctionWithReceivers(declaration.parent, declaration.name, declaration)
         } else {
             super.visitFunction(declaration)
         }

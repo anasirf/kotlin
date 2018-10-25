@@ -36,6 +36,7 @@ import org.jetbrains.kotlin.resolve.source.getPsi
 import org.jetbrains.kotlin.types.ErrorUtils
 import org.jetbrains.org.objectweb.asm.Opcodes
 import org.jetbrains.org.objectweb.asm.Type
+import java.io.File
 import java.lang.RuntimeException
 
 open class ClassCodegen protected constructor(
@@ -63,11 +64,15 @@ open class ClassCodegen protected constructor(
 
     private val fileEntry = sourceManager.getFileEntry(irClass.fileParent)
 
-    val psiElement = irClass.descriptor.psiElement!!
+    val psiElement = irClass.descriptor.psiElement
 
     val visitor: ClassBuilder = createClassBuilder()
 
-    open fun createClassBuilder() = state.factory.newVisitor(OtherOrigin(psiElement, descriptor), type, psiElement.containingFile)
+    open fun createClassBuilder() = state.factory.newVisitor(
+        OtherOrigin(psiElement, descriptor),
+        type,
+        psiElement?.containingFile?.let { setOf(it) } ?: emptySet()
+    )
 
     private var sourceMapper: DefaultSourceMapper? = null
 
@@ -85,7 +90,9 @@ open class ClassCodegen protected constructor(
             signature.interfaces.toTypedArray()
         )
         AnnotationCodegen.forClass(visitor.visitor, this, typeMapper).genAnnotations(descriptor, null)
-        visitor.visitSource(irClass.symbol.descriptor.source.containingFile.name!!, null)
+        /* TODO: Temporary workaround: ClassBuilder needs a pathless name. */
+        val shortName = File(fileEntry.name).name
+        visitor.visitSource(shortName, null)
 
         irClass.declarations.forEach {
             generateDeclaration(it)
