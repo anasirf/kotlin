@@ -210,8 +210,8 @@ fun IrBuilderWithScope.irCall(callee: IrFunctionSymbol): IrCall =
 fun IrBuilderWithScope.irCall(callee: IrFunctionSymbol, descriptor: FunctionDescriptor, type: IrType): IrCall =
     IrCallImpl(startOffset, endOffset, type, callee, descriptor)
 
-fun IrBuilderWithScope.irCall(callee: IrFunction): IrCall =
-    irCall(callee.symbol, callee.descriptor, callee.returnType)
+fun IrBuilderWithScope.irCall(callee: IrFunction, type: IrType = callee.returnType): IrCall =
+    irCall(callee.symbol, callee.descriptor, type)
 
 fun IrBuilderWithScope.irDelegatingConstructorCall(callee: IrConstructor): IrDelegatingConstructorCall =
     IrDelegatingConstructorCallImpl(startOffset, endOffset, callee.returnType, callee.symbol, callee.descriptor, callee.typeParameters.size)

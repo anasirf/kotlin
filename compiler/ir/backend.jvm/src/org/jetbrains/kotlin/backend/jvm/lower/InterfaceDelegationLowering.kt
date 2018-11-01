@@ -6,34 +6,23 @@
 package org.jetbrains.kotlin.backend.jvm.lower
 
 import org.jetbrains.kotlin.backend.common.ClassLoweringPass
-import org.jetbrains.kotlin.backend.common.CodegenUtil
 import org.jetbrains.kotlin.backend.common.descriptors.WrappedSimpleFunctionDescriptor
 import org.jetbrains.kotlin.backend.common.ir.copyParameterDeclarationsFrom
-import org.jetbrains.kotlin.backend.common.ir.copyTypeParametersFrom
-import org.jetbrains.kotlin.backend.common.ir.copyValueParametersToStatic
+import org.jetbrains.kotlin.backend.common.lower.createIrBuilder
 import org.jetbrains.kotlin.backend.jvm.JvmBackendContext
 import org.jetbrains.kotlin.backend.jvm.JvmLoweredDeclarationOrigin
-import org.jetbrains.kotlin.backend.jvm.JvmLoweredStatementOrigin
 import org.jetbrains.kotlin.backend.jvm.codegen.isJvmInterface
-import org.jetbrains.kotlin.codegen.FunctionCodegen
 import org.jetbrains.kotlin.codegen.OwnerKind
-import org.jetbrains.kotlin.codegen.isDefinitelyNotDefaultImplsMethod
 import org.jetbrains.kotlin.codegen.state.GenerationState
-import org.jetbrains.kotlin.descriptors.FunctionDescriptor
 import org.jetbrains.kotlin.descriptors.Visibilities
 import org.jetbrains.kotlin.descriptors.deserialization.PLATFORM_DEPENDENT_ANNOTATION_FQ_NAME
 import org.jetbrains.kotlin.ir.UNDEFINED_OFFSET
+import org.jetbrains.kotlin.ir.builders.*
 import org.jetbrains.kotlin.ir.declarations.IrClass
 import org.jetbrains.kotlin.ir.declarations.IrDeclarationOrigin
-import org.jetbrains.kotlin.ir.declarations.IrFunction
 import org.jetbrains.kotlin.ir.declarations.IrSimpleFunction
 import org.jetbrains.kotlin.ir.declarations.impl.IrFunctionImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrBlockBodyImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrCallImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrGetValueImpl
-import org.jetbrains.kotlin.ir.expressions.impl.IrReturnImpl
 import org.jetbrains.kotlin.ir.symbols.impl.IrSimpleFunctionSymbolImpl
-import org.jetbrains.kotlin.ir.util.createParameterDeclarations
 import org.jetbrains.kotlin.ir.util.hasAnnotation
 import org.jetbrains.kotlin.ir.util.isInterface
 import org.jetbrains.kotlin.ir.util.resolveFakeOverride
@@ -61,28 +50,25 @@ class InterfaceDelegationLowering(val context: JvmBackendContext) : IrElementTra
         } else {
             Pair(irClass, false)
         }
-        for ((interfaceFun, value) in actualClass.getNonPrivateInterfaceMethods()) {
-            //skip java 8 default methods
-            if (!interfaceFun.isDefinitelyNotDefaultImplsMethod() && !interfaceFun.isMethodOfAny()) {
-                generateDelegationToDefaultImpl(irClass, interfaceFun, value, isDefaultImplsGeneration)
-            }
-        }
+        for (function in actualClass.declarations.filterIsInstance<IrSimpleFunction>()) {
+            if (function.origin !== IrDeclarationOrigin.FAKE_OVERRIDE) continue
 
-//        CodegenUtil.getNonPrivateTraitMethods(actualClass.descriptor, !isDefaultImplsGeneration)) {
-//            //skip java 8 default methods
-//            if (!interfaceFun.isDefinitelyNotDefaultImplsMethod() && !FunctionCodegen.isMethodOfAny(interfaceFun)) {
-//                generateDelegationToDefaultImpl(
-//                    irClass, context.ir.symbols.externalSymbolTable.referenceSimpleFunction(
-//                        interfaceFun.original
-//                    ).owner, value, isDefaultImplsGeneration
-//                )
-//            }
-//        }
+            val implementation = function.resolveFakeOverride() ?: continue
+            if ((implementation.parent as? IrClass)?.isInterface != true ||
+                Visibilities.isPrivate(implementation.visibility) ||
+                implementation.visibility === Visibilities.INVISIBLE_FAKE ||
+                implementation.isDefinitelyNotDefaultImplsMethod() || implementation.isMethodOfAny()
+            ) {
+                continue
+            }
+
+            generateDelegationToDefaultImpl(irClass, implementation, function, isDefaultImplsGeneration)
+        }
     }
 
     private fun generateDelegationToDefaultImpl(
         irClass: IrClass,
-        interfaceFun: IrFunction,
+        interfaceFun: IrSimpleFunction,
         inheritedFun: IrSimpleFunction,
         isDefaultImplsGeneration: Boolean
     ) {
@@ -103,7 +89,7 @@ class InterfaceDelegationLowering(val context: JvmBackendContext) : IrElementTra
                     IrDeclarationOrigin.DEFINED,
                     IrSimpleFunctionSymbolImpl(descriptor),
                     name,
-                    Visibilities.PUBLIC,
+                    inheritedFun.visibility,
                     inheritedFun.modality,
                     isInline = inheritedFun.isInline,
                     isExternal = false,
@@ -117,48 +103,20 @@ class InterfaceDelegationLowering(val context: JvmBackendContext) : IrElementTra
                     copyParameterDeclarationsFrom(inheritedFun)
                 }
             } else context.declarationFactory.getDefaultImplsFunction(inheritedFun)
-        val irBody = IrBlockBodyImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET)
-        irFunction.body = irBody
+
         irClass.declarations.add(irFunction)
 
-        val irCallImpl =
-            IrCallImpl(
-                UNDEFINED_OFFSET,
-                UNDEFINED_OFFSET,
-                defaultImplFun.returnType,
-                defaultImplFun.symbol,
-                defaultImplFun.descriptor,
-                origin = JvmLoweredStatementOrigin.DEFAULT_IMPLS_DELEGATION
-            )
-        irBody.statements.add(
-            IrReturnImpl(
-                UNDEFINED_OFFSET,
-                UNDEFINED_OFFSET,
-                irFunction.returnType,
-                irFunction.symbol,
-                irCallImpl
-            )
-        )
-
-        var offset = 0
-        irFunction.dispatchReceiverParameter?.let {
-            irCallImpl.putValueArgument(
-                offset,
-                IrGetValueImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, it.symbol)
-            )
-            offset++
-        }
-
-        irFunction.extensionReceiverParameter?.let {
-            irCallImpl.putValueArgument(
-                offset,
-                IrGetValueImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, it.symbol)
-            )
-            offset++
-        }
-
-        irFunction.valueParameters.mapIndexed { i, parameter ->
-            irCallImpl.putValueArgument(i + offset, IrGetValueImpl(UNDEFINED_OFFSET, UNDEFINED_OFFSET, parameter.symbol, null))
+        context.createIrBuilder(irFunction.symbol, UNDEFINED_OFFSET, UNDEFINED_OFFSET).apply {
+            irFunction.body = irBlockBody {
+                +irReturn(
+                    irCall(defaultImplFun, irFunction.returnType).apply {
+                        var offset = 0
+                        irFunction.dispatchReceiverParameter?.let { putValueArgument(offset++, irGet(it)) }
+                        irFunction.extensionReceiverParameter?.let { putValueArgument(offset++, irGet(it)) }
+                        irFunction.valueParameters.mapIndexed { i, parameter -> putValueArgument(i + offset, irGet(parameter)) }
+                    }
+                )
+            }
         }
     }
 
@@ -171,16 +129,4 @@ class InterfaceDelegationLowering(val context: JvmBackendContext) : IrElementTra
             origin == IrDeclarationOrigin.IR_EXTERNAL_DECLARATION_STUB && descriptor is JavaCallableMemberDescriptor
         } == true ||
                 hasAnnotation(PLATFORM_DEPENDENT_ANNOTATION_FQ_NAME)
-
-    private fun IrClass.getNonPrivateInterfaceMethods(): List<Pair<IrSimpleFunction, IrSimpleFunction>> {
-        return declarations.filterIsInstance<IrSimpleFunction>().mapNotNull { function ->
-            val resolved = function.resolveFakeOverride()
-            resolved?.takeIf {
-                resolved !== function && // TODO: take a better look
-                        (resolved.parent as? IrClass)?.isInterface == true &&
-                        !Visibilities.isPrivate(resolved.visibility) &&
-                        resolved.visibility != Visibilities.INVISIBLE_FAKE
-            }?.let { Pair(resolved, function) }
-        }
-    }
 }
